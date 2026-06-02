@@ -8,7 +8,7 @@ A stateless, typed HTTP client for calling KeeperHub from backend services, ops 
 
 ## Status
 
-Early development. The package is not yet published. The public surface and REST contract are still stabilizing.
+Early development (`0.x`). The public surface and REST contract are still stabilizing and may change between minor versions until `1.0`.
 
 ## Install
 
