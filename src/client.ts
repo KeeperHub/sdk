@@ -26,6 +26,11 @@ export class KeeperHubError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    /**
+     * Raw parsed response body from the failed request. May contain
+     * server-supplied detail; treat as potentially sensitive and avoid
+     * logging it wholesale in production.
+     */
     public readonly body?: unknown
   ) {
     super(message);
