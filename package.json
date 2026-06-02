@@ -1,6 +1,6 @@
 {
 	"name": "@keeperhub/sdk",
-	"version": "0.0.0",
+	"version": "0.1.0",
 	"description": "Official REST SDK for the KeeperHub API: stateless, typed HTTP client for backend, ops, and SaaS integrations.",
 	"license": "Apache-2.0",
 	"type": "module",
@@ -12,9 +12,9 @@
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
-			"require": "./dist/index.cjs"
+			"require": "./dist/index.cjs",
+			"types": "./dist/index.d.ts"
 		}
 	},
 	"files": [
@@ -35,6 +35,7 @@
 	},
 	"scripts": {
 		"build": "tsup",
+		"prepublishOnly": "npm run build",
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"type-check": "tsc --noEmit"

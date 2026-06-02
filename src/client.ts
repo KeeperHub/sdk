@@ -45,7 +45,13 @@ export class KeeperHubClient {
       /\/$/,
       ""
     );
-    this.fetchImpl = opts.fetch ?? fetch;
+    const fetchImpl = opts.fetch ?? globalThis.fetch;
+    if (!fetchImpl) {
+      throw new Error(
+        "KeeperHubClient: no fetch implementation available. Use Node >=20 or pass opts.fetch."
+      );
+    }
+    this.fetchImpl = fetchImpl;
   }
 
   /**
@@ -79,10 +85,14 @@ export class KeeperHubClient {
     }
 
     if (!res.ok) {
+      const errField =
+        body && typeof body === "object"
+          ? ((body as { error?: unknown; message?: unknown }).error ??
+            (body as { message?: unknown }).message)
+          : undefined;
       const msg =
-        (body && typeof body === "object" && "error" in body
-          ? JSON.stringify((body as { error: unknown }).error)
-          : res.statusText) || `HTTP ${res.status}`;
+        (errField !== undefined ? JSON.stringify(errField) : res.statusText) ||
+        `HTTP ${res.status}`;
       throw new KeeperHubError(`${path} → ${msg}`, res.status, body);
     }
     return body as T;

@@ -79,6 +79,6 @@ function toolNameFromWorkflow(name: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
-      .slice(0, 64) || "keepergate_workflow"
+      .slice(0, 64) || "keeperhub_workflow"
   );
 }
