@@ -118,6 +118,11 @@ export interface DirectTransferInput {
   /** JSON string with token metadata for non-standard ERC-20s. */
   tokenConfig?: string;
   gasLimitMultiplier?: string;
+  /**
+   * Dry-run only: estimate gas and detect a revert without signing or broadcasting.
+   * See docs/api/direct-execution.md for the safe first-write sequence.
+   */
+  simulate?: boolean;
 }
 
 export interface DirectContractCallInput {
@@ -131,6 +136,24 @@ export interface DirectContractCallInput {
   /** Wei to send for payable functions. */
   value?: string;
   gasLimitMultiplier?: string;
+  /**
+   * Dry-run only: estimate gas and detect a revert without signing or broadcasting.
+   * See docs/api/direct-execution.md for the safe first-write sequence.
+   */
+  simulate?: boolean;
+}
+
+/** Returned by a direct-execution call made with `simulate: true`. */
+export interface DirectSimulationResult {
+  success: boolean;
+  status: "simulated";
+  wouldRevert: boolean;
+  /** Present when `wouldRevert` is true; carries the raw revert data. */
+  revertReason?: string;
+  gasEstimate?: string;
+  from?: string;
+  to?: string;
+  value?: string;
 }
 
 export interface DirectCondition {
