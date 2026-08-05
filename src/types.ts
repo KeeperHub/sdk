@@ -186,3 +186,34 @@ export interface DirectExecutionStatus {
   createdAt?: string;
   completedAt?: string;
 }
+
+/** Options for a Direct Execution write call. */
+export interface DirectWriteOptions {
+  /**
+   * Simulate the call instead of broadcasting it. The API requires a strict
+   * boolean; strings and numbers are rejected with 400.
+   */
+  simulate?: boolean;
+  /**
+   * Value for the `Idempotency-Key` header. Replaying the same key with the
+   * same body returns the original execution instead of sending a second
+   * transaction. Keys are scoped per organization for 24 hours.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * Verdict from a simulated Direct Execution call.
+ *
+ * A simulation reporting that the call would revert is a successful answer,
+ * not a transport failure, so the `simulate*` helpers return this shape
+ * instead of throwing.
+ */
+export interface DirectSimulationResult {
+  success: boolean;
+  wouldRevert: boolean;
+  /** Server-supplied reason when the call would not succeed. */
+  error?: string;
+  /** Raw response body; the simulate payload carries more than this shape. */
+  raw: unknown;
+}
