@@ -211,7 +211,23 @@ export interface DirectWriteOptions {
  */
 export interface DirectSimulationResult {
   success: boolean;
-  wouldRevert: boolean;
+  /**
+   * Whether the simulated call would revert.
+   *
+   * Absent when nothing was simulated. `check-and-execute` stops before the
+   * action when the condition is not met or the action is read-only, so it
+   * reports nothing about a write it never encoded. Treat `undefined` as "not
+   * checked", never as "safe": a later broadcast may run a write this dry run
+   * never looked at.
+   */
+  wouldRevert?: boolean;
+  /**
+   * Whether the action would have run. Present on `check-and-execute`, where
+   * `false` means the condition was not met and no write was simulated.
+   */
+  executed?: boolean;
+  /** The condition verdict, present on `check-and-execute`. */
+  conditionResult?: unknown;
   /** Server-supplied reason when the call would not succeed. */
   error?: string;
   /** Stable machine-readable code when the server supplies one. */
