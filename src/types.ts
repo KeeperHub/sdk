@@ -214,6 +214,10 @@ export interface DirectSimulationResult {
   wouldRevert: boolean;
   /** Server-supplied reason when the call would not succeed. */
   error?: string;
+  /** Stable machine-readable code when the server supplies one. */
+  code?: string;
+  /** Chain-supplied revert reason when the call would revert. */
+  revertReason?: string;
   /** Raw response body; the simulate payload carries more than this shape. */
   raw: unknown;
 }

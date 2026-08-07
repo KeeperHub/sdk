@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { KeeperHubClient, DirectExecutor } from "../src/index.js";
-import type { DirectTransferInput } from "../src/index.js";
+import type {
+  DirectTransferInput,
+  DirectCheckAndExecuteInput,
+} from "../src/index.js";
 
 const TRANSFER: DirectTransferInput = {
   network: "sepolia",
@@ -121,5 +124,92 @@ describe("DirectExecutor.simulateTransfer", () => {
       payload: { error: "simulate must be a boolean" },
     }));
     await expect(executor.simulateTransfer(TRANSFER)).rejects.toThrow();
+  });
+});
+
+const CHECK: DirectCheckAndExecuteInput = {
+  network: "sepolia",
+  contractAddress: "0x0000000000000000000000000000000000000002",
+  functionName: "balanceOf",
+  condition: { operator: "gte", value: "1000" },
+  action: {
+    network: "sepolia",
+    contractAddress: "0x0000000000000000000000000000000000000003",
+    functionName: "withdraw",
+  },
+};
+
+describe("DirectExecutor.simulateCheckAndExecute", () => {
+  it("simulates against the check-and-execute route", async () => {
+    const { executor, calls } = harness(() => ({
+      status: 200,
+      payload: { success: true, wouldRevert: false },
+    }));
+    const verdict = await executor.simulateCheckAndExecute(CHECK);
+    expect(calls[0].url).toContain("/execute/check-and-execute");
+    expect(calls[0].body.simulate).toBe(true);
+    expect(verdict).toMatchObject({ success: true, wouldRevert: false });
+  });
+
+  it("returns a verdict instead of throwing when the call would revert", async () => {
+    const { executor } = harness(() => ({
+      status: 400,
+      payload: { wouldRevert: true, error: "execution reverted: not ready" },
+    }));
+    const verdict = await executor.simulateCheckAndExecute(CHECK);
+    expect(verdict.wouldRevert).toBe(true);
+    expect(verdict.success).toBe(false);
+    expect(verdict.error).toContain("not ready");
+  });
+
+  it("still throws on a failure that is not a revert", async () => {
+    const { executor } = harness(() => ({
+      status: 401,
+      payload: { error: "unauthorized" },
+    }));
+    await expect(executor.simulateCheckAndExecute(CHECK)).rejects.toThrow();
+  });
+});
+
+describe("DirectSimulationResult code and revertReason", () => {
+  it("surfaces code and revertReason from the body", async () => {
+    const { executor } = harness(() => ({
+      status: 400,
+      payload: {
+        wouldRevert: true,
+        error: "Insufficient ETH balance. Have: 0.0, Need: 0.0001.",
+        code: "INSUFFICIENT_BALANCE",
+        revertReason: "execution reverted",
+      },
+    }));
+    const verdict = await executor.simulateTransfer(TRANSFER);
+    expect(verdict.code).toBe("INSUFFICIENT_BALANCE");
+    expect(verdict.revertReason).toBe("execution reverted");
+  });
+
+  it("reads them from details when they are nested there", async () => {
+    const { executor } = harness(() => ({
+      status: 400,
+      payload: {
+        wouldRevert: true,
+        details: {
+          code: "GAS_TOO_LOW",
+          revertReason: "execution reverted: ERC20: bad",
+        },
+      },
+    }));
+    const verdict = await executor.simulateTransfer(TRANSFER);
+    expect(verdict.code).toBe("GAS_TOO_LOW");
+    expect(verdict.revertReason).toBe("execution reverted: ERC20: bad");
+  });
+
+  it("leaves both undefined when the server sends neither", async () => {
+    const { executor } = harness(() => ({
+      status: 200,
+      payload: { success: true, wouldRevert: false },
+    }));
+    const verdict = await executor.simulateTransfer(TRANSFER);
+    expect(verdict.code).toBeUndefined();
+    expect(verdict.revertReason).toBeUndefined();
   });
 });

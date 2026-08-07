@@ -44,6 +44,29 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
+ * Read the first non-empty string found under any of `keys`, looking at the
+ * body and then at `details`. Direct Execution puts structured context in
+ * `details`, so a caller should not have to reach into `raw` for it.
+ */
+function readField(
+  obj: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  const details = asRecord(obj.details);
+  if (details) {
+    for (const key of keys) {
+      const value = details[key];
+      if (typeof value === "string" && value.length > 0) return value;
+    }
+  }
+  return undefined;
+}
+
+/**
  * DirectExecutor wraps KeeperHub's Direct Execution API — synchronous
  * blockchain operations that don't require a workflow definition.
  *
@@ -114,6 +137,13 @@ export class DirectExecutor {
     return this.simulate("/execute/contract-call", input);
   }
 
+  /** Simulate a check-and-execute without broadcasting it. */
+  simulateCheckAndExecute(
+    input: DirectCheckAndExecuteInput
+  ): Promise<DirectSimulationResult> {
+    return this.simulate("/execute/check-and-execute", input);
+  }
+
   /**
    * Run a Direct Execution call with `simulate: true` and return the verdict.
    *
@@ -136,6 +166,8 @@ export class DirectExecutor {
         success: obj.success === true,
         wouldRevert: obj.wouldRevert === true,
         error: readErrorText(obj),
+        code: readField(obj, "code", "errorCode"),
+        revertReason: readField(obj, "revertReason", "reason"),
         raw: res,
       };
     } catch (err) {
@@ -146,6 +178,8 @@ export class DirectExecutor {
           success: false,
           wouldRevert: true,
           error: readErrorText(obj),
+          code: readField(obj, "code", "errorCode"),
+          revertReason: readField(obj, "revertReason", "reason"),
           raw: khErr?.body,
         };
       }
