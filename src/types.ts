@@ -186,3 +186,54 @@ export interface DirectExecutionStatus {
   createdAt?: string;
   completedAt?: string;
 }
+
+/** Options for a Direct Execution write call. */
+export interface DirectWriteOptions {
+  /**
+   * Simulate the call instead of broadcasting it. The API requires a strict
+   * boolean; strings and numbers are rejected with 400.
+   */
+  simulate?: boolean;
+  /**
+   * Value for the `Idempotency-Key` header. Replaying the same key with the
+   * same body returns the original execution instead of sending a second
+   * transaction. Keys are scoped per organization for 24 hours.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * Verdict from a simulated Direct Execution call.
+ *
+ * A simulation reporting that the call would revert is a successful answer,
+ * not a transport failure, so the `simulate*` helpers return this shape
+ * instead of throwing.
+ */
+export interface DirectSimulationResult {
+  success: boolean;
+  /**
+   * Whether the simulated call would revert.
+   *
+   * Absent when nothing was simulated. `check-and-execute` stops before the
+   * action when the condition is not met or the action is read-only, so it
+   * reports nothing about a write it never encoded. Treat `undefined` as "not
+   * checked", never as "safe": a later broadcast may run a write this dry run
+   * never looked at.
+   */
+  wouldRevert?: boolean;
+  /**
+   * Whether the action would have run. Present on `check-and-execute`, where
+   * `false` means the condition was not met and no write was simulated.
+   */
+  executed?: boolean;
+  /** The condition verdict, present on `check-and-execute`. */
+  conditionResult?: unknown;
+  /** Server-supplied reason when the call would not succeed. */
+  error?: string;
+  /** Stable machine-readable code when the server supplies one. */
+  code?: string;
+  /** Chain-supplied revert reason when the call would revert. */
+  revertReason?: string;
+  /** Raw response body; the simulate payload carries more than this shape. */
+  raw: unknown;
+}

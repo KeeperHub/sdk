@@ -1,3 +1,4 @@
+import { KeeperHubError } from "./client.js";
 import type { KeeperHubClient } from "./client.js";
 import type {
   DirectCheckAndExecuteInput,
@@ -5,9 +6,74 @@ import type {
   DirectContractCallInput,
   DirectExecutionStatus,
   DirectReadResult,
+  DirectSimulationResult,
   DirectTransferInput,
+  DirectWriteOptions,
   DirectWriteResult,
 } from "./types.js";
+
+/** Build the RequestInit for a Direct Execution write. */
+function writeInit(input: object, opts?: DirectWriteOptions): RequestInit {
+  const body =
+    opts?.simulate === undefined
+      ? { ...input }
+      : { ...input, simulate: opts.simulate };
+  const init: RequestInit = { method: "POST", body: JSON.stringify(body) };
+  if (opts?.idempotencyKey) {
+    init.headers = { "Idempotency-Key": opts.idempotencyKey };
+  }
+  return init;
+}
+
+/**
+ * Pull a human-readable reason out of an error body. Direct Execution puts a
+ * sentence in `error` and structured context in `details`; the rest of the API
+ * puts a stable code in `error`. Check both.
+ */
+function readErrorText(obj: Record<string, unknown>): string | undefined {
+  if (typeof obj.error === "string") return obj.error;
+  if (typeof obj.details === "string") return obj.details;
+  if (typeof obj.message === "string") return obj.message;
+  return undefined;
+}
+
+/**
+ * Read a boolean the server actually sent, leaving an absent or non-boolean
+ * value as `undefined`. "The server did not say" and "the server said false"
+ * are different answers and must stay distinguishable at the call site.
+ */
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Read the first non-empty string found under any of `keys`, looking at the
+ * body and then at `details`. Direct Execution puts structured context in
+ * `details`, so a caller should not have to reach into `raw` for it.
+ */
+function readField(
+  obj: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  const details = asRecord(obj.details);
+  if (details) {
+    for (const key of keys) {
+      const value = details[key];
+      if (typeof value === "string" && value.length > 0) return value;
+    }
+  }
+  return undefined;
+}
 
 /**
  * DirectExecutor wraps KeeperHub's Direct Execution API — synchronous
@@ -22,12 +88,20 @@ import type {
 export class DirectExecutor {
   constructor(private readonly client: KeeperHubClient) {}
 
-  /** Transfer native tokens (omit tokenAddress) or ERC-20 tokens. */
-  transfer(input: DirectTransferInput): Promise<DirectWriteResult> {
-    return this.client.rawRequest<DirectWriteResult>("/execute/transfer", {
-      method: "POST",
-      body: JSON.stringify(input),
-    });
+  /**
+   * Transfer native tokens (omit tokenAddress) or ERC-20 tokens.
+   *
+   * Pass `{ idempotencyKey }` so a retry after a timeout replays the original
+   * execution instead of sending a second transaction.
+   */
+  transfer(
+    input: DirectTransferInput,
+    opts?: DirectWriteOptions
+  ): Promise<DirectWriteResult> {
+    return this.client.rawRequest<DirectWriteResult>(
+      "/execute/transfer",
+      writeInit(input, opts)
+    );
   }
 
   /**
@@ -38,28 +112,95 @@ export class DirectExecutor {
    * Use `isReadResult` to discriminate at the call site.
    */
   callContract(
-    input: DirectContractCallInput
+    input: DirectContractCallInput,
+    opts?: DirectWriteOptions
   ): Promise<DirectReadResult | DirectWriteResult> {
     return this.client.rawRequest<DirectReadResult | DirectWriteResult>(
       "/execute/contract-call",
-      {
-        method: "POST",
-        body: JSON.stringify(input),
-      }
+      writeInit(input, opts)
     );
   }
 
   /** Read a value, evaluate a condition, conditionally execute a write. */
   checkAndExecute(
-    input: DirectCheckAndExecuteInput
+    input: DirectCheckAndExecuteInput,
+    opts?: DirectWriteOptions
   ): Promise<DirectCheckAndExecuteResult> {
     return this.client.rawRequest<DirectCheckAndExecuteResult>(
       "/execute/check-and-execute",
-      {
-        method: "POST",
-        body: JSON.stringify(input),
-      }
+      writeInit(input, opts)
     );
+  }
+
+  /** Simulate a transfer without broadcasting it. */
+  simulateTransfer(
+    input: DirectTransferInput
+  ): Promise<DirectSimulationResult> {
+    return this.simulate("/execute/transfer", input);
+  }
+
+  /** Simulate a contract call without broadcasting it. */
+  simulateContractCall(
+    input: DirectContractCallInput
+  ): Promise<DirectSimulationResult> {
+    return this.simulate("/execute/contract-call", input);
+  }
+
+  /** Simulate a check-and-execute without broadcasting it. */
+  simulateCheckAndExecute(
+    input: DirectCheckAndExecuteInput
+  ): Promise<DirectSimulationResult> {
+    return this.simulate("/execute/check-and-execute", input);
+  }
+
+  /**
+   * Run a Direct Execution call with `simulate: true` and return the verdict.
+   *
+   * The API answers a would-revert simulation with HTTP 400 and
+   * `wouldRevert: true`. That is a real answer about the chain, not a
+   * transport failure, so it is returned rather than thrown. Anything else
+   * still throws.
+   */
+  private async simulate(
+    path: string,
+    input: object
+  ): Promise<DirectSimulationResult> {
+    try {
+      const res = await this.client.rawRequest<unknown>(
+        path,
+        writeInit(input, { simulate: true })
+      );
+      const obj = asRecord(res) ?? {};
+      return {
+        success: obj.success === true,
+        // Carried through rather than coerced. Collapsing an absent field to
+        // `false` would report "would not revert" for a call that was never
+        // encoded, which is the one answer a preflight must not invent.
+        wouldRevert: readBoolean(obj.wouldRevert),
+        executed: readBoolean(obj.executed),
+        conditionResult: obj.conditionResult,
+        error: readErrorText(obj),
+        code: readField(obj, "code", "errorCode"),
+        revertReason: readField(obj, "revertReason", "reason"),
+        raw: res,
+      };
+    } catch (err) {
+      const khErr = err instanceof KeeperHubError ? err : undefined;
+      const obj = asRecord(khErr?.body);
+      if (obj?.wouldRevert === true) {
+        return {
+          success: false,
+          wouldRevert: true,
+          executed: readBoolean(obj.executed),
+          conditionResult: obj.conditionResult,
+          error: readErrorText(obj),
+          code: readField(obj, "code", "errorCode"),
+          revertReason: readField(obj, "revertReason", "reason"),
+          raw: khErr?.body,
+        };
+      }
+      throw err;
+    }
   }
 
   /** Status of a direct execution by its id. */
