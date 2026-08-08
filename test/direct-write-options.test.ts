@@ -11,6 +11,18 @@ const TRANSFER: DirectTransferInput = {
   amount: "0.0001",
 };
 
+const CHECK_AND_EXECUTE: DirectCheckAndExecuteInput = {
+  network: "sepolia",
+  contractAddress: "0x0000000000000000000000000000000000000002",
+  functionName: "balanceOf",
+  condition: { operator: "gt", value: "50" },
+  action: {
+    network: "sepolia",
+    contractAddress: "0x0000000000000000000000000000000000000003",
+    functionName: "transfer",
+  },
+};
+
 interface Capture {
   url: string;
   headers: Record<string, string>;
@@ -211,5 +223,64 @@ describe("DirectSimulationResult code and revertReason", () => {
     const verdict = await executor.simulateTransfer(TRANSFER);
     expect(verdict.code).toBeUndefined();
     expect(verdict.revertReason).toBeUndefined();
+  });
+});
+
+describe("DirectSimulationResult distinguishes absent from false", () => {
+  it("leaves wouldRevert undefined when the server omits it", async () => {
+    const { executor } = harness(() => ({
+      status: 200,
+      payload: {
+        success: true,
+        status: "simulated",
+        executed: false,
+        conditionResult: { met: false },
+      },
+    }));
+
+    const verdict = await executor.simulateCheckAndExecute(CHECK_AND_EXECUTE);
+
+    expect(verdict.success).toBe(true);
+    expect(verdict.wouldRevert).toBeUndefined();
+    expect(verdict.executed).toBe(false);
+  });
+
+  it("surfaces the condition verdict so a caller knows why nothing ran", async () => {
+    const { executor } = harness(() => ({
+      status: 200,
+      payload: {
+        success: true,
+        status: "simulated",
+        executed: false,
+        conditionResult: { met: false, observedValue: "10" },
+      },
+    }));
+
+    const verdict = await executor.simulateCheckAndExecute(CHECK_AND_EXECUTE);
+
+    expect(verdict.conditionResult).toMatchObject({ met: false });
+  });
+
+  it("still reports false when the server checked and found it safe", async () => {
+    const { executor } = harness(() => ({
+      status: 200,
+      payload: { success: true, wouldRevert: false, executed: true },
+    }));
+
+    const verdict = await executor.simulateTransfer(TRANSFER);
+
+    expect(verdict.wouldRevert).toBe(false);
+  });
+
+  it("still reports true on a would-revert 400", async () => {
+    const { executor } = harness(() => ({
+      status: 400,
+      payload: { wouldRevert: true, revertReason: "ERC20: bad" },
+    }));
+
+    const verdict = await executor.simulateTransfer(TRANSFER);
+
+    expect(verdict.wouldRevert).toBe(true);
+    expect(verdict.revertReason).toBe("ERC20: bad");
   });
 });

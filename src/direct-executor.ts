@@ -37,6 +37,15 @@ function readErrorText(obj: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/**
+ * Read a boolean the server actually sent, leaving an absent or non-boolean
+ * value as `undefined`. "The server did not say" and "the server said false"
+ * are different answers and must stay distinguishable at the call site.
+ */
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
@@ -164,7 +173,12 @@ export class DirectExecutor {
       const obj = asRecord(res) ?? {};
       return {
         success: obj.success === true,
-        wouldRevert: obj.wouldRevert === true,
+        // Carried through rather than coerced. Collapsing an absent field to
+        // `false` would report "would not revert" for a call that was never
+        // encoded, which is the one answer a preflight must not invent.
+        wouldRevert: readBoolean(obj.wouldRevert),
+        executed: readBoolean(obj.executed),
+        conditionResult: obj.conditionResult,
         error: readErrorText(obj),
         code: readField(obj, "code", "errorCode"),
         revertReason: readField(obj, "revertReason", "reason"),
@@ -177,6 +191,8 @@ export class DirectExecutor {
         return {
           success: false,
           wouldRevert: true,
+          executed: readBoolean(obj.executed),
+          conditionResult: obj.conditionResult,
           error: readErrorText(obj),
           code: readField(obj, "code", "errorCode"),
           revertReason: readField(obj, "revertReason", "reason"),

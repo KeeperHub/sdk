@@ -57,13 +57,22 @@ const verdict = await direct.simulateTransfer({
   amount: "0.0001",
 });
 
-if (!verdict.success || verdict.wouldRevert) {
+if (!verdict.success || verdict.wouldRevert === true) {
   console.error(verdict.error);
+  return;
+}
+
+if (verdict.wouldRevert === undefined) {
+  // Nothing was simulated, so this is not a green light. On
+  // simulateCheckAndExecute it means the condition was not met, or the action
+  // is read-only. Read verdict.executed and verdict.conditionResult to see why.
   return;
 }
 ```
 
 A simulation that reports the call would revert is an answer about the chain, not a transport failure. `simulateTransfer` and `simulateContractCall` return that answer as a value; anything else still throws `KeeperHubError`.
+
+Compare `wouldRevert` against `true` and `undefined` explicitly rather than testing it for truthiness. Absent means the endpoint never encoded a call, which is a different answer from a call it checked and found safe, and treating the two alike lets a later broadcast run a write the dry run never examined.
 
 ### Make a retry safe
 
